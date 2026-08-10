@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Shavarma Restaurant"
+description = "A vibrant restaurant landing page for Shavarma, featuring the menu, signature dishes, story, location, and clear ordering actions for hungry guests."
+version = "1.0.0"
+id = "artifacts/shavarma-restaurant"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24867
+
+[services.development]
+run = "pnpm --filter @workspace/shavarma-restaurant run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/shavarma-restaurant", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/shavarma-restaurant/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24867"
+BASE_PATH = "/"
