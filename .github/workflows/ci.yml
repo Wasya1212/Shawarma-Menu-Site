@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build, test, and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            **/package-lock.json
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Run lint if available
+        shell: bash
+        run: |
+          if npm run | grep -qE '^[[:space:]]+lint$'; then
+            npm run lint
+          else
+            echo "No lint script found, skipping."
+          fi
+
+      - name: Run tests if available
+        shell: bash
+        run: |
+          if npm run | grep -qE '^[[:space:]]+test$'; then
+            npm test -- --runInBand || npm test
+          else
+            echo "No test script found, skipping."
+          fi
+
+      - name: Build project
+        run: npm run build
+
+      - name: Create build.zip
+        shell: bash
+        run: |
+          BUILD_DIR=""
+          for dir in dist build; do
+            if [ -d "$dir" ]; then
+              BUILD_DIR="$dir"
+              break
+            fi
+          done
+
+          if [ -z "$BUILD_DIR" ]; then
+            echo "No build output directory found (expected dist/ or build/)." >&2
+            exit 1
+          fi
+
+          rm -f build.zip
+          (cd "$BUILD_DIR" && zip -r ../build.zip .)
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: build.zip
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Deploy to Creator
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+        env:
+          CREATOR_USER_TOKEN: ${{ secrets.CREATOR_USER_TOKEN }}
+        run: |
+          curl --fail --show-error --max-time 120 \
+            -X POST \
+            -H "Authorization: $CREATOR_USER_TOKEN" \
+            -F "file=@build.zip" \
+            "https://creator.qa.api.onereach.ai/api/git-deploy/github/396cafde-5d04-4441-a9d4-b21542cc8fe5"
